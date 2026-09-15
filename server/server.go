@@ -58,7 +58,7 @@ func (this *Server) Handler(conn net.Conn) {
 
 	user.Online()
 
-	//监听用户是否活跃的channel
+	//监听用户是否活跃的channel，true代表活跃，false代表下线或断开
 	isLive := make(chan bool, 1)
 
 	//接受客户端发送的消息
@@ -67,12 +67,11 @@ func (this *Server) Handler(conn net.Conn) {
 		for {
 			n, err := conn.Read(buf)
 			if n == 0 {
-				user.Offline()
-				return
+				break
 			}
 			if err != nil && err != io.EOF {
 				fmt.Println("Conn Read err:", err)
-				return
+				break
 			}
 
 			//提取用户消息(去除\n)
@@ -84,14 +83,23 @@ func (this *Server) Handler(conn net.Conn) {
 			//用户的任意消息，代表当前用户是一个活跃的
 			isLive <- true
 		}
+		isLive <- false
 	}()
 
 	//当前handler阻塞
 	for {
 		select {
-		case <-isLive:
+		case live := <-isLive:
 			//当前用户是活跃的，应该重置定时器
 			//不做任何事情，为了激活select,更新下面的定时器
+
+			if live == false {
+				//客户端已断开，和超时踢人走同一套清理
+				user.Offline()
+				close(user.C)
+				conn.Close()
+				return
+			}
 
 		case <-time.After(time.Minute * 5):
 			//已经超时
